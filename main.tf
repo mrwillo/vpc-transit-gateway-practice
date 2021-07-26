@@ -14,11 +14,11 @@ EOF
 
 
 module "vpc" {
-    count=length(var.vpc_cirds)
+    count=length(var.vpc_cidrs)
     source = "terraform-aws-modules/vpc/aws"
 
-    name = "duy-vpc"
-    cidr = "${var.vpc_cirds[count.index]}"
+    name = format("duy-vpc-%d",count.index)
+    cidr = "${var.vpc_cidrs[count.index]}"
     azs=["us-east-1a","us-east-1b","us-east-1c"]
     public_subnets = "${var.subnet_cidrs[count.index]}"
 
@@ -33,18 +33,10 @@ module "vpc" {
     }
 }
 
-# resource "aws_eip" "nat" {
-#     count = 3
-#     vpc = true
-# }
 
-data "aws_vpc" "selected" {
-    id = "${module.vpc.vpc_id}"
-}
-
-data "aws_subnet_ids" "all" {
-  vpc_id = "${data.aws_vpc.selected.id}"
- 
+data "aws_subnet_ids" "public" {
+  count = length(var.vpc_cidrs)
+  vpc_id = "${module.vpc[count.index].vpc_id}"
 }
 
 data "aws_ami" "amazon_linux" {
@@ -64,7 +56,7 @@ module "security_group" {
   count = length(var.vpc_cidrs)
   source = "terraform-aws-modules/security-group/aws"
 
-  name        = "example"
+  name        = format("http_icmp_ssh_%d",count.index)
   description = "Security group for example usage with EC2 instance"
   vpc_id      = "${module.vpc[count.index].vpc_id}"
 
@@ -77,14 +69,21 @@ module "ec2_cluster" {
   source = "terraform-aws-modules/ec2-instance/aws"
 
   count = length(var.vpc_cidrs)
-  name                        = "example + ${each.value}"
+  # for_each = data.aws_subnet_ids.public[count.index].ids 
+  name                        = format("example_%d",count.index)
   ami                         = "${data.aws_ami.amazon_linux.id}"
   instance_type               = "t2.micro"
-  subnet_id                   = "${data.aws_subnet_ids.all.ids[count.index]}"
+  subnet_id                   = "${tolist(data.aws_subnet_ids.public[count.index].ids)[count.index]}"
   vpc_security_group_ids      = ["${module.security_group[count.index].security_group_id}"]
   associate_public_ip_address = true
   user_data_base64 = base64encode(local.user_data)
-  key_name = aws_key_pair.duy_tran.key_name
+  key_name = aws_key_pair.dytn.key_name
+}
+
+resource "aws_eip" "lterb" {
+  count = length(module.ec2_cluster)
+  instance = module.ec2_cluster[count.index].id[0]
+  vpc      = true
 }
 
 resource "aws_key_pair" "dytn" {
